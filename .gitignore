@@ -1,0 +1,21 @@
+# Python virtual environment & caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+
+# Local SQLite database (regenerated via `python -m backend.seed`)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Exclude raw large dataset files & duplicate CSVs in subfolders (root deliverables frequent_itemsets.csv & rules.csv are tracked)
+arm_task/transactions.txt
+arm_task/dev_transactions.txt
+arm_task/dev_rules.csv
+arm_task/student_data.zip
+arm_task/frequent_itemsets.csv
+arm_task/rules.csv
+output/rules.csv
+output/dev_rules.csv

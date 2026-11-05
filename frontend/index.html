@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task 3 — Association Rule Mining at Scale | Market Basket Analytics</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand-block">
+        <div class="brand-badge">RC3 AI HACKATHON · TASK 3</div>
+        <h1>Association Rule Mining at Scale</h1>
+        <p class="subtitle">Vertical-Bitset Eclat Engine (`uint64` Hardware Popcount) &amp; Market Basket Intelligence</p>
+      </div>
+
+      <div class="header-controls">
+        <div class="dataset-selector-group">
+          <label for="globalDatasetSelect">Active Corpus</label>
+          <select id="globalDatasetSelect" aria-label="Select active dataset">
+            <option value="full" selected>Full Corpus (500,000 Transactions)</option>
+            <option value="dev">Dev Corpus (50,000 Transactions)</option>
+          </select>
+        </div>
+
+        <div class="export-dropdown">
+          <a id="downloadItemsetsBtn" href="/api/export/frequent_itemsets" class="btn btn-outline" download>
+            ⬇ frequent_itemsets.csv
+          </a>
+          <a id="downloadRulesBtn" href="/api/export/rules" class="btn btn-primary" download>
+            ⬇ rules.csv
+          </a>
+        </div>
+
+        <div id="apiHealthBadge" class="health-pill" title="Backend & SQLite Status">
+          <span class="dot"></span>
+          <span id="apiHealthText">Connecting...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="main-nav" aria-label="Primary Navigation">
+      <button type="button" class="nav-tab active" data-tab="overview">
+        <span>📊 Overview &amp; Candidate Pruning</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="itemsets">
+        <span>🧱 Frequent Itemsets Explorer</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="rules">
+        <span>🔗 Association Rules Explorer</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="recommender">
+        <span>🛒 Smart Basket Recommender</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="studio">
+        <span>⚡ Live Miner &amp; Complexity Scaling</span>
+      </button>
+    </nav>
+
+    <!-- Global Alert Banner -->
+    <div id="globalAlert" class="alert-banner hidden" role="alert"></div>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <!-- TAB 1: OVERVIEW & CANDIDATE PRUNING -->
+      <section id="tab-overview" class="tab-panel active">
+        <div class="kpi-grid" id="overviewKpiGrid">
+          <div class="kpi-card">
+            <span class="kpi-label">Transactions (n)</span>
+            <strong class="kpi-value" id="kpiTransactions">—</strong>
+            <span class="kpi-sub" id="kpiBasketStats">Avg length: — | Max: —</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Frequent Itemsets</span>
+            <strong class="kpi-value accent-cyan" id="kpiFrequent">—</strong>
+            <span class="kpi-sub" id="kpiSupportInfo">min_support = 0.003 (min_count = —)</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Association Rules</span>
+            <strong class="kpi-value accent-indigo" id="kpiRules">—</strong>
+            <span class="kpi-sub" id="kpiConfidenceInfo">min_confidence = 0.60</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Pipeline Runtime</span>
+            <strong class="kpi-value accent-emerald" id="kpiRuntime">—</strong>
+            <span class="kpi-sub" id="kpiStageBreakdown">Parse: — | Mine: — | Rules: —</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Candidates Examined</span>
+            <strong class="kpi-value accent-amber" id="kpiCandidates">—</strong>
+            <span class="kpi-sub" id="kpiPruningRatio">vs 2^2000 theoretical space</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Answer Key Verification</span>
+            <strong class="kpi-value accent-emerald" id="kpiVerification">—</strong>
+            <span class="kpi-sub" id="kpiVerificationSub">Missing: 0 · Extra: 0 · Wrong: 0</span>
+          </div>
+        </div>
+
+        <div class="grid-two-col">
+          <!-- Candidate vs Frequent Chart & Table -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Candidates Examined vs. Frequent Itemsets by Size (k)</h2>
+                <p>Vertical-bitset Eclat equivalence class pruning across depth levels</p>
+              </div>
+            </div>
+            <div class="canvas-wrap">
+              <canvas id="candidateChartCanvas" width="640" height="270"></canvas>
+            </div>
+            <div class="table-scroll compact-table">
+              <table class="data-table" id="candidatePruningTable">
+                <thead>
+                  <tr>
+                    <th>Size (k)</th>
+                    <th>Candidates Examined</th>
+                    <th>Frequent Found</th>
+                    <th>Survival Rate</th>
+                    <th>Share of Frequent</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Basket Length & Top Items -->
+          <div class="stack-col">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Transaction Basket Length Distribution</h2>
+                  <p>Poisson base baskets (mean ~10) + planted patterns + 0.3% bulk orders (35–74 items)</p>
+                </div>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="basketHistCanvas" width="580" height="220"></canvas>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Top Frequent Individual Items (Size k = 1)</h2>
+                  <p>Click any item badge to inspect rules or add to Smart Basket Recommender</p>
+                </div>
+              </div>
+              <div id="topItemsContainer" class="top-items-grid"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Method Description Summary Card -->
+        <div class="card method-card">
+          <div class="card-header">
+            <div>
+              <h2>Algorithmic Architecture: Why Vertical-Bitset Eclat + Ascending Support Ordering Works</h2>
+              <p>Designed specifically for 2,000 items, 500,000 transactions, and deep planted bundles up to k = 10</p>
+            </div>
+          </div>
+          <div class="method-steps-grid">
+            <div class="method-step">
+              <span class="step-num">Stage 1</span>
+              <h3>CSR Token Flattening &amp; `bincount`</h3>
+              <p>Flattens all transactions into contiguous `int32` arrays and counts all 2,000 item frequencies in a single $O(N \cdot \bar{L})$ pass via `np.bincount`, immediately pruning ~80% of infrequent items ($2,000 \rightarrow 389$).</p>
+            </div>
+            <div class="method-step">
+              <span class="step-num">Stage 2</span>
+              <h3>64-Bit Vertical Bitsets (`uint64`)</h3>
+              <p>Packs each frequent item's transaction ID list into $\lceil N / 64 \rceil$ 64-bit words ($7,813$ words = $62.5\text{ KB}$ per item at $N=500\text{k}$). All 389 bitsets occupy only $24.3\text{ MB}$ in L3 cache.</p>
+            </div>
+            <div class="method-step">
+              <span class="step-num">Stage 3</span>
+              <h3>Ascending-Frequency Eclat DFS</h3>
+              <p>Sorts frequent 1-itemsets by ascending count before depth-first equivalence class intersection (`b & bj` + hardware `np.bitwise_count`). Sparser prefixes prune child branches immediately.</p>
+            </div>
+            <div class="method-step">
+              <span class="step-num">Stage 4</span>
+              <h3>Downward-Closed Rule Generation</h3>
+              <p>For each frequent itemset $X$ ($|X| \ge 2$), all proper subsets $A \subset X$ are already cached in `freq` in $O(1)$ lookup. Emits $A \Rightarrow X \setminus A$ whenever $\text{count}(X)/\text{count}(A) \ge 0.6$.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: FREQUENT ITEMSETS EXPLORER -->
+      <section id="tab-itemsets" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>Frequent Itemsets Explorer</h2>
+              <p>Search, filter, and sort all mined frequent itemsets ($\text{count}(X) \ge \lceil \text{min\_support} \times n \rceil$)</p>
+            </div>
+            <div class="result-counter" id="itemsetsTotalBadge">Loading...</div>
+          </div>
+
+          <form id="itemsetsFilterForm" class="filter-bar">
+            <div class="form-group">
+              <label for="fiSizeSelect">Itemset Size (k)</label>
+              <select id="fiSizeSelect">
+                <option value="all">All Sizes (k ≥ 1)</option>
+                <option value="1">k = 1 (Singletons)</option>
+                <option value="2">k = 2 (Pairs)</option>
+                <option value="3">k = 3 (Triplets)</option>
+                <option value="4">k = 4</option>
+                <option value="5">k = 5</option>
+                <option value="6">k = 6</option>
+                <option value="7">k = 7</option>
+                <option value="8">k = 8</option>
+                <option value="9">k = 9</option>
+                <option value="10">k = 10</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="fiItemInput">Contains Item ID(s)</label>
+              <input type="text" id="fiItemInput" placeholder="e.g. 10 or 162 205" />
+            </div>
+
+            <div class="form-group">
+              <label for="fiMinCountInput">Min Support Count</label>
+              <input type="number" id="fiMinCountInput" min="1" placeholder="e.g. 1500" />
+            </div>
+
+            <div class="form-group">
+              <label for="fiSortSelect">Sort By</label>
+              <select id="fiSortSelect">
+                <option value="support_desc">Support Count (High → Low)</option>
+                <option value="support_asc">Support Count (Low → High)</option>
+                <option value="size_desc">Itemset Size (Large → Small)</option>
+                <option value="size_asc">Itemset Size (Small → Large)</option>
+              </select>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Apply Filters</button>
+              <button type="button" id="fiResetBtn" class="btn btn-ghost">Reset</button>
+            </div>
+          </form>
+
+          <div id="fiErrorBox" class="inline-error hidden"></div>
+
+          <div class="table-scroll">
+            <table class="data-table" id="itemsetsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Itemset (Sorted Ascending Item IDs)</th>
+                  <th>Size (k)</th>
+                  <th>Support Count</th>
+                  <th>Relative Support</th>
+                  <th>Quick Actions</th>
+                </tr>
+              </thead>
+              <tbody id="itemsetsTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination-bar">
+            <button type="button" id="fiPrevBtn" class="btn btn-outline" disabled>← Previous</button>
+            <span id="fiPageInfo">Page 1</span>
+            <button type="button" id="fiNextBtn" class="btn btn-outline">Next →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: ASSOCIATION RULES EXPLORER -->
+      <section id="tab-rules" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>Association Rules Explorer ($A \Rightarrow C$)</h2>
+              <p>Filter rules by antecedent, consequent, confidence ($\ge 0.60$), lift, and itemset cardinality</p>
+            </div>
+            <div class="result-counter" id="rulesTotalBadge">Loading...</div>
+          </div>
+
+          <form id="rulesFilterForm" class="filter-bar">
+            <div class="form-group">
+              <label for="arAntecedentInput">Antecedent Contains ($A$)</label>
+              <input type="text" id="arAntecedentInput" placeholder="e.g. 6 or 10 162" />
+            </div>
+
+            <div class="form-group">
+              <label for="arConsequentInput">Consequent Contains ($C$)</label>
+              <input type="text" id="arConsequentInput" placeholder="e.g. 438 or 799" />
+            </div>
+
+            <div class="form-group">
+              <label for="arMinConfInput">Min Confidence</label>
+              <input type="number" id="arMinConfInput" min="0.01" max="1.0" step="0.01" value="0.60" />
+            </div>
+
+            <div class="form-group">
+              <label for="arMinLiftInput">Min Lift</label>
+              <input type="number" id="arMinLiftInput" min="0" step="0.5" placeholder="e.g. 5.0" />
+            </div>
+
+            <div class="form-group">
+              <label for="arAntSizeSelect">|A| Size</label>
+              <select id="arAntSizeSelect">
+                <option value="all">Any |A|</option>
+                <option value="1">|A| = 1</option>
+                <option value="2">|A| = 2</option>
+                <option value="3">|A| = 3</option>
+                <option value="4">|A| = 4</option>
+                <option value="5">|A| = 5</option>
+                <option value="6">|A| = 6</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="arConsSizeSelect">|C| Size</label>
+              <select id="arConsSizeSelect">
+                <option value="all">Any |C|</option>
+                <option value="1">|C| = 1</option>
+                <option value="2">|C| = 2</option>
+                <option value="3">|C| = 3</option>
+                <option value="4">|C| = 4</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="arSortSelect">Sort By</label>
+              <select id="arSortSelect">
+                <option value="confidence_desc">Confidence (High → Low)</option>
+                <option value="lift_desc">Lift (High → Low)</option>
+                <option value="support_desc">Support Count (High → Low)</option>
+                <option value="confidence_asc">Confidence (Low → High)</option>
+              </select>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Search Rules</button>
+              <button type="button" id="arResetBtn" class="btn btn-ghost">Reset</button>
+            </div>
+          </form>
+
+          <div id="arErrorBox" class="inline-error hidden"></div>
+
+          <div class="table-scroll">
+            <table class="data-table" id="rulesTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Antecedent ($A$: "If Customer Buys")</th>
+                  <th>Consequent ($C$: "Then Also Buys")</th>
+                  <th>Support Count</th>
+                  <th>Support %</th>
+                  <th>Confidence</th>
+                  <th>Lift</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="rulesTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination-bar">
+            <button type="button" id="arPrevBtn" class="btn btn-outline" disabled>← Previous</button>
+            <span id="arPageInfo">Page 1</span>
+            <button type="button" id="arNextBtn" class="btn btn-outline">Next →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: SMART BASKET RECOMMENDER -->
+      <section id="tab-recommender" class="tab-panel">
+        <div class="grid-two-col recommender-layout">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>🛒 Customer Shopping Basket Builder</h2>
+                <p>Simulate real-time cart recommendations powered by exact mined association rules</p>
+              </div>
+            </div>
+
+            <div class="preset-baskets">
+              <span class="preset-label">Load Sample Preset Basket:</span>
+              <button type="button" class="btn btn-xs btn-outline preset-basket-btn" data-items="6,799">
+                Bundle A (Items 6, 799)
+              </button>
+              <button type="button" class="btn btn-xs btn-outline preset-basket-btn" data-items="10,162,205">
+                Popular Trio (10, 162, 205)
+              </button>
+              <button type="button" class="btn btn-xs btn-outline preset-basket-btn" data-items="35,190,412,835">
+                Deep Pattern (35, 190, 412, 835)
+              </button>
+              <button type="button" class="btn btn-xs btn-outline preset-basket-btn" data-items="438,659,1092">
+                Cluster Basket (438, 659, 1092)
+              </button>
+            </div>
+
+            <form id="basketForm" class="basket-form">
+              <div class="form-row">
+                <div class="form-group flex-grow">
+                  <label for="basketInput">Add Item ID(s) to Basket (1 – 2000)</label>
+                  <input type="text" id="basketInput" placeholder="Enter item IDs separated by spaces or commas, e.g. 6 799" />
+                </div>
+                <button type="button" id="addBasketItemBtn" class="btn btn-outline">Add Item(s)</button>
+              </div>
+
+              <div class="active-basket-box">
+                <div class="basket-box-header">
+                  <strong>Active Shopping Cart (<span id="basketCountBadge">2</span> items)</strong>
+                  <button type="button" id="clearBasketBtn" class="btn-link">Clear Cart</button>
+                </div>
+                <div id="activeBasketChips" class="chips-container"></div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="recMinConfInput">Min Rule Confidence</label>
+                  <input type="number" id="recMinConfInput" min="0.1" max="1.0" step="0.05" value="0.60" />
+                </div>
+                <div class="form-group">
+                  <label for="recTopKInput">Max Recommendations</label>
+                  <input type="number" id="recTopKInput" min="1" max="50" value="12" />
+                </div>
+                <div class="form-actions">
+                  <button type="submit" id="runRecommendBtn" class="btn btn-primary">
+                    ✨ Generate Recommendations
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <div id="recErrorBox" class="inline-error hidden"></div>
+          </div>
+
+          <!-- Recommendations Output -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Recommended Cross-Sell Items</h2>
+                <p>Ranked by maximum confidence, lift, and supporting association rule count</p>
+              </div>
+              <span class="result-counter" id="recMatchedRulesBadge">0 rules matched</span>
+            </div>
+
+            <div id="recommendationsGrid" class="recommendations-grid"></div>
+          </div>
+        </div>
+
+        <!-- Triggered Rules Evidence Table -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>Triggered Association Rules ($A \subseteq \text{Basket} \Rightarrow C$)</h2>
+              <p>Exact rule evidence explaining why each item above was recommended</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Antecedent in Cart ($A$)</th>
+                  <th>Recommended Consequent ($C$)</th>
+                  <th>New Items Suggested</th>
+                  <th>Support Count</th>
+                  <th>Confidence</th>
+                  <th>Lift</th>
+                </tr>
+              </thead>
+              <tbody id="recRulesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: LIVE MINER & COMPLEXITY SCALING -->
+      <section id="tab-studio" class="tab-panel">
+        <div class="grid-two-col">
+          <!-- Empirical Complexity Scaling Charts -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Empirical Complexity Scaling vs. Dataset Size (N)</h2>
+                <p>Measured on `transactions.txt` slices ($N = 25\text{k} \dots 500\text{k}$) with log-log polyfit slope</p>
+              </div>
+              <span class="badge-pill" id="slopeBadge">Slope: —</span>
+            </div>
+            <div class="canvas-wrap">
+              <canvas id="sizeScalingCanvas" width="600" height="250"></canvas>
+            </div>
+            <div class="table-scroll compact-table">
+              <table class="data-table" id="sizeScalingTable">
+                <thead>
+                  <tr>
+                    <th>Transactions (N)</th>
+                    <th>min_count</th>
+                    <th>Candidates</th>
+                    <th>Frequent</th>
+                    <th>Rules</th>
+                    <th>Mine (s)</th>
+                    <th>Rules (s)</th>
+                    <th>Total (s)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Complexity Scaling vs. Support Threshold ($\text{min\_support}$)</h2>
+                <p>Measured on `dev_transactions.txt` ($N = 50,000$) from $\text{min\_support} = 0.010$ down to $0.002$</p>
+              </div>
+            </div>
+            <div class="canvas-wrap">
+              <canvas id="supportScalingCanvas" width="600" height="250"></canvas>
+            </div>
+            <div class="table-scroll compact-table">
+              <table class="data-table" id="supportScalingTable">
+                <thead>
+                  <tr>
+                    <th>min_support</th>
+                    <th>min_count</th>
+                    <th>Candidates</th>
+                    <th>Frequent</th>
+                    <th>Rules</th>
+                    <th>Mine (s)</th>
+                    <th>Rules (s)</th>
+                    <th>Total (s)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Custom Mining Studio -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>⚡ Live Eclat Mining Studio</h2>
+              <p>Execute the vertical-bitset Eclat miner in real time with custom parameters or custom transactions</p>
+            </div>
+          </div>
+
+          <form id="liveMineForm" class="live-mine-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="mineSourceType">Data Source</label>
+                <select id="mineSourceType">
+                  <option value="preset" selected>Preset Corpus Slice (Dev / Full)</option>
+                  <option value="custom">Custom Pasted Transactions</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="minePresetDatasetGroup">
+                <label for="mineDatasetSelect">Corpus</label>
+                <select id="mineDatasetSelect">
+                  <option value="dev" selected>dev_transactions.txt (up to 50,000)</option>
+                  <option value="full">transactions.txt (up to 500,000)</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="mineMaxTxGroup">
+                <label for="mineMaxTxInput">Number of Transactions (N)</label>
+                <input type="number" id="mineMaxTxInput" min="100" max="500000" step="1000" value="10000" />
+              </div>
+
+              <div class="form-group">
+                <label for="mineSupportInput">min_support (0.001 – 1.0)</label>
+                <input type="number" id="mineSupportInput" min="0.001" max="1.0" step="0.001" value="0.005" />
+              </div>
+
+              <div class="form-group">
+                <label for="mineConfInput">min_confidence (0.05 – 1.0)</label>
+                <input type="number" id="mineConfInput" min="0.05" max="1.0" step="0.05" value="0.60" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" id="runLiveMineBtn" class="btn btn-primary">▶ Run Live Eclat Miner</button>
+              </div>
+            </div>
+
+            <div id="customTxContainer" class="form-group hidden">
+              <label for="customTxTextarea">Custom Transactions (One basket per line, space-separated positive integer item IDs)</label>
+              <textarea id="customTxTextarea" rows="5" placeholder="10 20 30 40&#10;10 20 30&#10;10 20 40&#10;10 30 40&#10;20 30 40"></textarea>
+            </div>
+          </form>
+
+          <div id="liveMineErrorBox" class="inline-error hidden"></div>
+
+          <div id="liveMineResultBox" class="live-mine-results hidden">
+            <div class="live-summary-banner" id="liveMineSummaryBanner"></div>
+            <div class="grid-two-col">
+              <div>
+                <h3>Top Discovered Frequent Itemsets</h3>
+                <div class="table-scroll compact-table">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Itemset</th>
+                        <th>Size (k)</th>
+                        <th>Count</th>
+                        <th>Support %</th>
+                      </tr>
+                    </thead>
+                    <tbody id="liveMineItemsetsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h3>Top Discovered Association Rules</h3>
+                <div class="table-scroll compact-table">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Rule ($A \Rightarrow C$)</th>
+                        <th>Count</th>
+                        <th>Confidence</th>
+                        <th>Lift</th>
+                      </tr>
+                    </thead>
+                    <tbody id="liveMineRulesBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Saved Mining Runs in SQLite -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>Saved Mining Runs History (SQLite `mining_runs` Table)</h2>
+              <p>Persistent audit log of baseline and custom mining executions</p>
+            </div>
+          </div>
+          <div class="table-scroll compact-table">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Run ID</th>
+                  <th>Timestamp (UTC)</th>
+                  <th>Dataset / Source</th>
+                  <th>Transactions</th>
+                  <th>min_support</th>
+                  <th>min_confidence</th>
+                  <th>Frequent Found</th>
+                  <th>Rules Found</th>
+                  <th>Runtime (s)</th>
+                </tr>
+              </thead>
+              <tbody id="miningRunsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>RC3 AI Hackathon · Task 3: Association Rule Mining at Scale</span>
+      <span>Engine: Pure NumPy `uint64` Vertical-Bitset Eclat · 100% Exact Ground-Truth Match</span>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
